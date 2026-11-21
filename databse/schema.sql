@@ -1,106 +1,121 @@
--- Campus Lost & Found - database schema + demo data (SQLite, runs in the browser via sql.js)
-PRAGMA foreign_keys = ON;
+DROP DATABASE IF EXISTS campus_lost_found;
+CREATE DATABASE campus_lost_found CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE campus_lost_found;
 
 CREATE TABLE users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  email TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'student' CHECK (role IN ('student','admin')),
-  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended')),
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(120) NOT NULL UNIQUE,
+  password_hash VARCHAR(200) NOT NULL,
+  role ENUM('student','admin') NOT NULL DEFAULT 'student',
+  status ENUM('active','suspended') NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE student_profiles (
-  user_id INTEGER PRIMARY KEY,
-  student_id TEXT NOT NULL UNIQUE,
-  full_name TEXT NOT NULL,
-  department TEXT,
-  year_of_study INTEGER,
-  phone TEXT,
+  user_id INT PRIMARY KEY,
+  student_id VARCHAR(20) NOT NULL UNIQUE,
+  full_name VARCHAR(100) NOT NULL,
+  department VARCHAR(80),
+  year_of_study TINYINT,
+  phone VARCHAR(20),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
-CREATE TABLE categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, description TEXT);
-CREATE TABLE locations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, description TEXT);
+CREATE TABLE categories (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(60) NOT NULL UNIQUE,
+  description VARCHAR(255)
+);
+CREATE TABLE locations (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(80) NOT NULL UNIQUE,
+  description VARCHAR(255)
+);
 CREATE TABLE items (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  type TEXT NOT NULL CHECK (type IN ('lost','found')),
-  title TEXT NOT NULL,
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  type ENUM('lost','found') NOT NULL,
+  title VARCHAR(120) NOT NULL,
   description TEXT NOT NULL,
-  category_id INTEGER NOT NULL,
-  location_id INTEGER NOT NULL,
-  event_date TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','claimed','returned')),
-  admin_note TEXT,
-  reported_by INTEGER NOT NULL,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  category_id INT NOT NULL,
+  location_id INT NOT NULL,
+  event_date DATE NOT NULL,
+  status ENUM('pending','approved','rejected','claimed','returned') NOT NULL DEFAULT 'pending',
+  admin_note VARCHAR(255),
+  reported_by INT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE RESTRICT,
   FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE RESTRICT,
-  FOREIGN KEY (reported_by) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY (reported_by) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_status_type (status, type),
+  INDEX idx_category (category_id),
+  INDEX idx_location (location_id),
+  FULLTEXT INDEX ft_items (title, description)
 );
-CREATE INDEX idx_items_status_type ON items(status, type);
-CREATE INDEX idx_items_category ON items(category_id);
-CREATE INDEX idx_items_location ON items(location_id);
 CREATE TABLE item_images (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  item_id INTEGER NOT NULL,
-  image_url TEXT NOT NULL,
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  item_id INT NOT NULL,
+  image_url VARCHAR(500) NOT NULL,
   FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
 );
 CREATE TABLE claims (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  item_id INTEGER NOT NULL,
-  claimant_id INTEGER NOT NULL,
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  item_id INT NOT NULL,
+  claimant_id INT NOT NULL,
   proof TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
-  admin_note TEXT,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  reviewed_at TEXT,
-  UNIQUE (item_id, claimant_id),
+  status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+  admin_note VARCHAR(255),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_at TIMESTAMP NULL,
+  UNIQUE KEY uq_claim (item_id, claimant_id),
   FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
   FOREIGN KEY (claimant_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE TABLE notifications (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
-  title TEXT NOT NULL,
-  message TEXT NOT NULL,
-  is_read INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  title VARCHAR(120) NOT NULL,
+  message VARCHAR(500) NOT NULL,
+  is_read TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_user_read (user_id, is_read)
 );
-CREATE INDEX idx_notif_user ON notifications(user_id, is_read);
 CREATE TABLE announcements (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT NOT NULL,
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  title VARCHAR(150) NOT NULL,
   body TEXT NOT NULL,
-  created_by INTEGER,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_by INT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE TABLE activity_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER,
-  action TEXT NOT NULL,
-  details TEXT,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NULL,
+  action VARCHAR(60) NOT NULL,
+  details VARCHAR(255),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_created (created_at)
 );
-CREATE INDEX idx_logs_created ON activity_logs(created_at);
 
--- View: items joined with category, location and reporter
+-- View: item details joined with category, location and reporter
 CREATE VIEW v_item_details AS
 SELECT i.id, i.type, i.title, i.status, i.event_date, c.name AS category, l.name AS location, p.full_name AS reporter
 FROM items i JOIN categories c ON c.id=i.category_id JOIN locations l ON l.id=i.location_id JOIN student_profiles p ON p.user_id=i.reported_by;
 
 -- Trigger: notify the reporter automatically when an admin approves/rejects a pending report
-CREATE TRIGGER trg_item_review AFTER UPDATE OF status ON items
-WHEN OLD.status='pending' AND NEW.status IN ('approved','rejected')
+DELIMITER $$
+CREATE TRIGGER trg_item_review AFTER UPDATE ON items FOR EACH ROW
 BEGIN
-  INSERT INTO notifications(user_id,title,message)
-  VALUES (NEW.reported_by, 'Report '||NEW.status,
-    'Your '||NEW.type||' report "'||NEW.title||'" was '||NEW.status||'.'||COALESCE(' Note: '||NEW.admin_note,''));
-END;
+  IF OLD.status='pending' AND NEW.status IN ('approved','rejected') THEN
+    INSERT INTO notifications(user_id,title,message)
+    VALUES (NEW.reported_by, CONCAT('Report ',NEW.status),
+      CONCAT('Your ',NEW.type,' report "',NEW.title,'" was ',NEW.status,'.',IFNULL(CONCAT(' Note: ',NEW.admin_note),'')));
+  END IF;
+END$$
+DELIMITER ;
 
--- ---------------- Demo data ----------------
+-- Demo data. Admin: sunita.rao@campus.edu / Admin@123 | Student: jiya.gupta@campus.edu / Student@123
+USE campus_lost_found;
+
 INSERT INTO categories(name,description) VALUES
 ('Electronics','Phones, laptops, chargers, earbuds'),
 ('Books & Stationery','Books, notebooks, calculators'),
@@ -124,32 +139,32 @@ INSERT INTO locations(name,description) VALUES
 ('Parking Area','Two-wheeler and car parking');
 
 INSERT INTO users(email,password_hash,role,status,created_at) VALUES
-('sunita.rao@campus.edu','668c94bf7d60bc30:f81bdc01a3752145e6dce409b04c2c7943253fca2acb417ec33f07925bb59a2b','admin','active','2026-08-01 09:00:00'),
-('anil.kumar@campus.edu','0491c7d4a82e805d:2071a1f12abf17bdedc19853dbb5ca043d9d78877b0460df770fe8cf2d8dd641','admin','active','2026-08-01 09:00:00'),
-('jiya.gupta@campus.edu','f8aa25c0438867b2:435fe043b4ee7329c76e6630a6be129d1067727596fdd022d8b874e86ddcc2d9','student','active','2026-08-03 10:00:00'),
-('ananya.iyer@campus.edu','991d509b353d640e:70477514fee5bdafc9e48b01605e0f38599f0dcad7ddd7bc892cb58a47bfbe47','student','active','2026-08-04 10:00:00'),
-('kabir.malhotra@campus.edu','7df5336b48090d3d:bca7181d10822bf782e073af6e539772a17997824a7a2b1de811cb2694c30b1e','student','active','2026-08-05 10:00:00'),
-('priya.nair@campus.edu','1e2d2b005c13cf3b:3fa86112bb4cbbd74664dca738225e7b4429ee8290cc6a3bc2a0e855c7fea4fc','student','active','2026-08-06 10:00:00'),
-('vikram.singh@campus.edu','b91cf1825cc4aa2a:8a5f12a2f89aeba5513df58f8d680a9a63bc15bb45c717378ae7b6475d104992','student','active','2026-08-07 10:00:00'),
-('sneha.kulkarni@campus.edu','9850ac6b78e7f314:4c63d6b03b4dad265bf11f33b7865b5dce39dc2e53ade3109ad13ad13ace1737','student','active','2026-08-08 10:00:00'),
-('aditya.verma@campus.edu','1d38e553f116a850:00ef302b0a8bbe320df18da78be482b76843a39b26a63871571fda116bc5ca86','student','active','2026-08-09 10:00:00'),
-('neha.gupta@campus.edu','1b293764238268ad:543f233b9d5d081bc3b5f74d6ecbfa774373f22d7aa2aa8cb8e94ab8ade1c7e3','student','active','2026-08-10 10:00:00'),
-('rahul.mehta@campus.edu','3c7699e75673568a:ac0c086622f2ac46173e754b68f63b9e1ac8fab172337d4f06eee8a8b769af5b','student','active','2026-08-11 10:00:00'),
-('pooja.reddy@campus.edu','1b6b823ffedb57d8:030a8bfb22a3407e9b7bb36c1670a30b42e38cb1769d123aaa2cfec2c775d436','student','active','2026-08-12 10:00:00'),
-('karan.kapoor@campus.edu','7fefa6c6c2d72012:041a82659415ac31b6c951211954eb08e741d2daf92ceadf168eea82271155fa','student','active','2026-08-13 10:00:00'),
-('divya.menon@campus.edu','0607d2d31c6c9f2b:55a8f52730375637e2da37b8d7d87151c38cf73c681777f9190bc8bf71f469ab','student','active','2026-08-14 10:00:00'),
-('siddharth.joshi@campus.edu','f94cf2e090add2c0:c29a410cd2581b5b6584dfbd59962c07aa16c50b26e2007e00903b51587d1a19','student','active','2026-08-15 10:00:00'),
-('meera.pillai@campus.edu','e665d43c371ca323:fd04149b015c1a3f6a8af98173118ae9cf988161cff7c38ccecaf11b8e8187d3','student','active','2026-08-16 10:00:00'),
-('harsh.agarwal@campus.edu','16982f8b00cb23e2:fbd302c09112e90dcf292f59d39be8a8fdcbb90a7ffa0f2f74a576b566130712','student','active','2026-08-17 10:00:00'),
-('tanvi.deshmukh@campus.edu','95a45162b9efcd9c:d294d6f3268b3abd194828c0348bdc2e68cd3815b2f0acf5da32a0c86fb4389f','student','active','2026-08-18 10:00:00'),
-('nikhil.bansal@campus.edu','dafab3907cda728e:7d8df0e8da538e4265345dff309c6bfac16f76e6ac39de76f6d9cd074727c632','student','active','2026-08-19 10:00:00'),
-('ishita.chatterjee@campus.edu','d4df9e8ff88584dc:0913805b01f89ffa3096fa5e4bc48a2769b5cba4666a90b7ca13965a8736e8fe','student','active','2026-08-20 10:00:00'),
-('manish.yadav@campus.edu','0c89c4ee6efb0a7f:52f50b9f50459f32ea74466c58f93dea77d6021037c3fbf27f1514739358d34e','student','active','2026-08-21 10:00:00'),
-('simran.kaur@campus.edu','0ceaa45702fe3894:6fb3601808a280c0cda1e5560a74b440399f91a80273b2acaee545935b954887','student','active','2026-08-22 10:00:00'),
-('varun.choudhary@campus.edu','51b6b7f4ecf9c731:ae6418c64e56b62e75b22f5896c83de5ba49bab28733e5bec800b994d5522e18','student','active','2026-08-23 10:00:00'),
-('riya.banerjee@campus.edu','91cc693990a0bba5:f255f4097cfaa93de59dfea0c2791f705e9a9f64c802fd16077c7e2f0bb4fe76','student','active','2026-08-24 10:00:00'),
-('yash.patel@campus.edu','f24b6d44ef9b8877:719712c14e6bdcf520d7dd25871570e81345c7ef64300b144ac77a22db46fdc9','student','active','2026-08-25 10:00:00'),
-('aisha.khan@campus.edu','05f8bd8e684ed3c0:5d4ed00bf65d6b4572ec656145b33179dcb427f82b8ab870694e1ee1a982338a','student','suspended','2026-08-26 10:00:00');
+('sunita.rao@campus.edu','dd4ac814232cfacdc32197e96916a19c:546c074c158754ffc7cb1e12fbc43ba0faa502434c0d236d11d46da06b3b03e7','admin','active','2026-08-01 09:00:00'),
+('anil.kumar@campus.edu','c8f06a7b480e323002834146369f41be:e20c7ebab4ae4f22918678b7b58f7c62417c6b802844248a3a55b10bfd685f20','admin','active','2026-08-01 09:00:00'),
+('jiya.gupta@campus.edu','848de32d31ef9198b494a7d00049cf83:8b6e4286e2ec38284f808da363c0c317d78815dc6067348fdad5bfe952022838','student','active','2026-08-03 10:00:00'),
+('ananya.iyer@campus.edu','7ba640dbbe49553fddba2a8ce55b65e4:79973606a52a98b175765e543362c130a2e70a1a7daeb3000e932e6c82cd941a','student','active','2026-08-04 10:00:00'),
+('kabir.malhotra@campus.edu','d5a647d74475afbbdc64f7fc41a15dfa:6bd7da12d5229cfa7bedbe1930a24a3cf639d27caf2ac7fc84d88be89688d18d','student','active','2026-08-05 10:00:00'),
+('priya.nair@campus.edu','3d11383ce4b616461a91650fd4d7ed6e:aa3af8d20ed2acc3d5b08f29dd9626ba71514b8bd715df8c95ab731c49f85a89','student','active','2026-08-06 10:00:00'),
+('vikram.singh@campus.edu','1fd144e87dc71b3a58c6bcdfbca720bf:398bbbef84e70cba2a78ab2d2a163f326e137e4bdf6802911821aeda5ebc0156','student','active','2026-08-07 10:00:00'),
+('sneha.kulkarni@campus.edu','0268aad04339cf493388bae7841c3a0d:75963e599ff28e57d19ae0491434d61e734f1516e7602e3b7590f8e6c6e0443c','student','active','2026-08-08 10:00:00'),
+('aditya.verma@campus.edu','db2f6ca3b74cdb69c3cd788e81eaeebe:37e2ab4f77a08265c146e08e20e3e9b8b6a26302df757e3914b998918b0c851b','student','active','2026-08-09 10:00:00'),
+('neha.gupta@campus.edu','5b5b7723786eab25078a55940174f488:dc301a92f6dccfb15c0f95a7df4ec4ec5c7a72dc3e5ce5b2e0aa93e250b06d31','student','active','2026-08-10 10:00:00'),
+('rahul.mehta@campus.edu','860bd62674f46b56fa1ba1f9915148af:15f1d0608cb994c55fd90554518450209da8dfdc287859c3a4a8ab61aaef72c3','student','active','2026-08-11 10:00:00'),
+('pooja.reddy@campus.edu','97a6987a1e55b6ed44383a0497c050b9:8b21bc85f510498727fda950ac89c71e4978c4555874508de38fa20b1f85636d','student','active','2026-08-12 10:00:00'),
+('karan.kapoor@campus.edu','4bfaf546b9f6640582269177b3854837:cf63da09a1689725ea51ec45c150db4acc458f7966ec2daf2a57b17aeb40f27a','student','active','2026-08-13 10:00:00'),
+('divya.menon@campus.edu','e1d4fb411d135c1d507659b4eb2657b8:ad3f1d5aa795d82fb9955c66d03c443504a77522d23ff154df3793c9289c70bb','student','active','2026-08-14 10:00:00'),
+('siddharth.joshi@campus.edu','b1bdc294592f9025ff9413fb538b41e1:b6b0d35d906d0d50b917c28822fe704bc90b2a379e1e27bffa9de1ebed7e6eb9','student','active','2026-08-15 10:00:00'),
+('meera.pillai@campus.edu','68614de26ee8e416b5c1794f9d39d9e3:7b00cc505dc7081ffa0e6ce46d1dc92d497606eb741dafc3f38f929f2cfb3ef8','student','active','2026-08-16 10:00:00'),
+('harsh.agarwal@campus.edu','31adc4c52d3b1f297093382a4552fa54:a63dbe596296197ebce6fd81d8cfd6dc12b673a4af1fdfb3710cdb1337a75a4e','student','active','2026-08-17 10:00:00'),
+('tanvi.deshmukh@campus.edu','9191007816b0a78054476f8e0fdd104c:d61d1ca12966952f0a519c353a58ed32d157235cfd21aad55a2946e0102bbf84','student','active','2026-08-18 10:00:00'),
+('nikhil.bansal@campus.edu','afe6bef6c3d6c9b22d85d602cd3482b3:a088c2b74cf732a1ba938656ce359880c1e858ec96444ea2f64a4a47fa387c78','student','active','2026-08-19 10:00:00'),
+('ishita.chatterjee@campus.edu','d296ff451ef2deb6a8b01588f40393bb:5e642b8cd970099ed043c9f095de50c7dddc8db58bd565d8445a04971017381e','student','active','2026-08-20 10:00:00'),
+('manish.yadav@campus.edu','cf33e41579feb4a437fd34c37c0d6f01:48d96109511afd47ac23b72a710e95ef563753135ac1ab35bc838102b4d9bd20','student','active','2026-08-21 10:00:00'),
+('simran.kaur@campus.edu','689a0a2561506fb093627b5669c38240:59131954d2537a860939dd97cf40566cffac96e4b902dc25b1c66d495d32f783','student','active','2026-08-22 10:00:00'),
+('varun.choudhary@campus.edu','111e9877a0012b36581b6b1138416d07:450720824409f5ce5fa7918f44b1f6e86acc0942ad38062536730ec5a8573824','student','active','2026-08-23 10:00:00'),
+('riya.banerjee@campus.edu','39a3037278ad0d0faf158050b5c71351:0d810b1252ef205c83fb0c2f47150a283c2b5f73233a0efd9cbe90456ded2ff8','student','active','2026-08-24 10:00:00'),
+('yash.patel@campus.edu','e10264ef4630ae3a56ec177bd3c9a49d:ea5a820eab089e41137049c2c61de52c8fc5a5627a74e62b26a5c8ddf4f0c489','student','active','2026-08-25 10:00:00'),
+('aisha.khan@campus.edu','83d732def81d411fb1724ca441dfc4fa:61f38142226b9f8353e8dbbef744523b5b8ab49e953c95ebbec3dea8d8013577','student','suspended','2026-08-26 10:00:00');
 
 INSERT INTO student_profiles(user_id,student_id,full_name,department,year_of_study,phone) VALUES
 ('1','ADM-01','Sunita Rao','Administration',NULL,'9000000000'),
