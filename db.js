@@ -1,5 +1,3 @@
-// db.js - in-browser SQLite database (sql.js) and the API layer used by app.js.
-// The tables and demo data come from schema.sql. Data is saved in this browser (localStorage).
 const KEY='clf_db_v1',SQLJS='https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/';
 let db;
 const qa=(s,p=[])=>{const st=db.prepare(s);st.bind(p);const r=[];while(st.step())r.push(st.getAsObject());st.free();return r};
